@@ -84,26 +84,62 @@ def _mock_openai_extract_to_json(text: str) -> dict[str, Any]:
             r"Invoice\s*Date\s*[:\-]?\s*(\d{4}[-/]\d{2}[-/]\d{2}|\d{2}[-/]\d{2}[-/]\d{4})",
             text,
         )
+        or _first_match(
+            r"Invoice\s*Date\s*[:\-]?\s*([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})",
+            text,
+        )
+        or _first_match(r"\b([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})\b", text)
         or _first_match(r"\b(\d{4}[-/]\d{2}[-/]\d{2})\b", text)
     )
     if invoice_date is None:
         invoice_date = date.today().isoformat()
 
     base_amount = _to_number(
-        _first_match(r"(?:Subtotal|Base\s*Amount)\s*[:\-]?\s*\$?([0-9,]+(?:\.[0-9]{1,2})?)", text)
+        _first_match(
+            r"(?:Subtotal|Base\s*Amount|Net\s*Amount)\s*[:\-]?\s*\$?([0-9,]+(?:\.[0-9]{1,2})?)",
+            text,
+        )
     )
 
     total_amount = _to_number(
-        _first_match(r"(?:Total\s*Due|Total)\s*[:\-]?\s*\$?([0-9,]+(?:\.[0-9]{1,2})?)", text)
+        _first_match(
+            r"(?:Total\s*Due|Grand\s*Total|Total\s*Amount|Amount\s*Due|Total)\s*[:\-]?\s*\$?([0-9,]+(?:\.[0-9]{1,2})?)",
+            text,
+        )
+    )
+
+    tax_amount = _to_number(
+        _first_match(
+            r"(?:Tax|VAT|GST)\s*(?:\(?\s*\d{1,2}(?:\.\d+)?\s*%\s*\)?)?\s*[:\-]?\s*\$?([0-9,]+(?:\.[0-9]{1,2})?)",
+            text,
+        )
     )
 
     if base_amount is None or total_amount is None:
         numbers = [float(x.replace(",", "")) for x in re.findall(r"\b\d{1,3}(?:,\d{3})*(?:\.\d{2})\b", text)]
         if numbers:
+            numbers_sorted = sorted(numbers)
             if total_amount is None:
-                total_amount = max(numbers)
+                total_amount = numbers_sorted[-1]
             if base_amount is None:
-                base_amount = min(numbers) if len(numbers) > 1 else max(numbers)
+                base_amount = numbers_sorted[-2] if len(numbers_sorted) >= 2 else numbers_sorted[-1]
+
+    # If we have tax, we can infer missing value or detect swapped base/total.
+    if tax_amount is not None:
+        if base_amount is None and total_amount is not None:
+            base_amount = total_amount - tax_amount
+        elif total_amount is None and base_amount is not None:
+            total_amount = base_amount + tax_amount
+        elif base_amount is not None and total_amount is not None:
+            # Swap if arithmetic indicates inversion.
+            diff_ok = abs((base_amount + tax_amount) - total_amount)
+            diff_swapped = abs((total_amount + tax_amount) - base_amount)
+            if diff_swapped < diff_ok and diff_swapped <= 0.05:
+                base_amount, total_amount = total_amount, base_amount
+
+    # Final sanity: base should not exceed total.
+    if base_amount is not None and total_amount is not None and base_amount > total_amount:
+        base_amount, total_amount = total_amount, base_amount
 
     base_amount = float(base_amount or 0.0)
     total_amount = float(total_amount or 0.0)

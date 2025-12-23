@@ -19,6 +19,14 @@ ENV/
 # Azure Functions local settings
 **/local.settings.json
 
+# Azure Functions (Python) build artifacts
+**/.python_packages/
+**/bin/
+**/obj/
+
+# Misc
+*.log
+
 # OS
 Thumbs.db
 .DS_Store
