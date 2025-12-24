@@ -1,5 +1,24 @@
 # Agentic Invoice Validation
 
+This project implements the capstone deliverables as **two services**:
+
+- ✅ **A Functional Function App** that accepts an invoice validation request and returns validation results.
+- ✅ **A Web API** that the Function App calls to read the invoice document (PDF) and return structured JSON.
+
+## Where the “agent” lives (code vs Foundry)
+
+There are two parts to the “agentic” system:
+
+- **In code (included in this repo / submission ZIP):**
+  - Orchestration logic (call extraction → validate → return strict schema) is implemented in the Azure Functions app.
+  - Deterministic validation fallback (`_compare`) is implemented in code.
+- **In Azure AI Foundry (cloud configuration, not automatically stored in this repo):**
+  - The **Foundry Agent definition** (instructions/prompt, tool wiring, versions) lives in your Foundry project.
+  - The repo only contains the **client code** that can call that agent (optional).
+
+> Note on “OpenAI for extraction”: the current Extraction API reads PDFs using `pypdf` and produces structured JSON via deterministic parsing.
+> It can be swapped to call an OpenAI model, but the repo currently does not include a direct OpenAI extraction call.
+
 Two local Python services:
 
 - **Service 1: Invoice Extraction API** (FastAPI)
@@ -170,12 +189,12 @@ az functionapp config appsettings set --name $funcApp --resource-group $rg --set
 ```powershell
 $extractionUrl = "https://$extractionApp.azurewebsites.net"
 
-az functionapp config appsettings set --name $funcApp --resource-group $rg --settings \
-  EXTRACTION_API_URL=$extractionUrl \
-  FOUNDRY_PROJECT_ENDPOINT="https://<resource>.services.ai.azure.com/api/projects/<project_name>" \
-  FOUNDRY_AGENT_NAME="invoice-validator-agent-v2" \
-  FOUNDRY_AGENT_VERSION="1" \
-  FOUNDRY_API_VERSION="2025-11-15-preview" \
+az functionapp config appsettings set --name $funcApp --resource-group $rg --settings `
+  EXTRACTION_API_URL=$extractionUrl `
+  FOUNDRY_PROJECT_ENDPOINT="https://<resource>.services.ai.azure.com/api/projects/<project_name>" `
+  FOUNDRY_AGENT_NAME="invoice-validator-agent-v2" `
+  FOUNDRY_AGENT_VERSION="1" `
+  FOUNDRY_API_VERSION="2025-11-15-preview" `
   USE_FOUNDRY_AGENT=true
 ```
 
