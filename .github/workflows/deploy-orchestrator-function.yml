@@ -1,0 +1,41 @@
+name: Deploy Orchestrator (Azure Functions)
+
+on:
+  push:
+    branches: [ azure_integration ]
+    paths:
+      - 'services/orchestrator/**'
+      - '.github/workflows/deploy-orchestrator-function.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FUNCTION_APP_NAME: ${{ vars.ORCHESTRATOR_FUNCTION_APP_NAME }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # The Functions action will run Oryx build on the server if SCM_DO_BUILD_DURING_DEPLOYMENT=1
+      # We still zip the function app folder here.
+      - name: Zip function app
+        working-directory: services/orchestrator
+        run: |
+          zip -r ../../orchestrator.zip .
+
+      - name: Deploy to Azure Functions
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ env.FUNCTION_APP_NAME }}
+          package: orchestrator.zip
+          publish-profile: ${{ secrets.ORCHESTRATOR_FUNC_PUBLISH_PROFILE }}

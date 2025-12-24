@@ -120,3 +120,93 @@ For Foundry calls from Azure, prefer **Managed Identity**:
   - `EXTRACTION_API_URL` (point to your deployed extraction API)
 
 With Managed Identity, you do **not** need to set `AZURE_AI_AUTH_TOKEN` in Azure.
+
+## Deploy from GitHub (CLI + GitHub Actions)
+
+This repo includes GitHub Actions workflows that deploy automatically on pushes to the `azure_integration` branch:
+
+- `.github/workflows/deploy-extraction-api.yml`
+- `.github/workflows/deploy-orchestrator-function.yml`
+
+### 1) Prereqs
+
+- Azure CLI installed (`az`)
+- Azure Functions Core Tools installed (`func`)
+- Logged in:
+
+```powershell
+az login
+az account show
+```
+
+### 2) Create Azure resources (CLI)
+
+Pick a resource group (you can reuse your existing one that hosts Foundry).
+
+```powershell
+$rg = "<your-resource-group>"
+$loc = "eastus"
+
+# App Service (Extraction API)
+$plan = "plan-invoice-validation"
+$extractionApp = "invoice-extraction-api-<unique>"
+
+az appservice plan create --name $plan --resource-group $rg --location $loc --is-linux --sku B1
+az webapp create --name $extractionApp --resource-group $rg --plan $plan --runtime "PYTHON|3.11"
+az webapp config appsettings set --name $extractionApp --resource-group $rg --settings SCM_DO_BUILD_DURING_DEPLOYMENT=1
+az webapp config set --name $extractionApp --resource-group $rg --startup-file "python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+# Function App (Orchestrator)
+$storage = "invvalstor<unique>"   # lowercase, globally unique
+$funcApp = "invoice-orchestrator-<unique>"
+
+az storage account create --name $storage --resource-group $rg --location $loc --sku Standard_LRS
+az functionapp create --resource-group $rg --consumption-plan-location $loc --runtime python --runtime-version 3.11 --functions-version 4 --name $funcApp --storage-account $storage
+az functionapp config appsettings set --name $funcApp --resource-group $rg --settings SCM_DO_BUILD_DURING_DEPLOYMENT=1
+```
+
+### 3) Configure Function App settings
+
+```powershell
+$extractionUrl = "https://$extractionApp.azurewebsites.net"
+
+az functionapp config appsettings set --name $funcApp --resource-group $rg --settings \
+  EXTRACTION_API_URL=$extractionUrl \
+  FOUNDRY_PROJECT_ENDPOINT="https://<resource>.services.ai.azure.com/api/projects/<project_name>" \
+  FOUNDRY_AGENT_NAME="invoice-validator-agent-v2" \
+  FOUNDRY_AGENT_VERSION="1" \
+  FOUNDRY_API_VERSION="2025-11-15-preview" \
+  USE_FOUNDRY_AGENT=true
+```
+
+### 4) Enable Managed Identity (recommended for Azure)
+
+```powershell
+az functionapp identity assign --name $funcApp --resource-group $rg
+```
+
+Then grant that identity permission to call your Foundry project/resource (RBAC in Azure Portal → Foundry/Azure AI resource → Access control (IAM)).
+
+### 5) Wire GitHub Actions to your Azure apps
+
+In your GitHub repo:
+
+1) Settings → Secrets and variables → Actions
+2) Add **Repository variables**:
+   - `EXTRACTION_APP_SERVICE_NAME` = your `$extractionApp`
+   - `ORCHESTRATOR_FUNCTION_APP_NAME` = your `$funcApp`
+3) Add **Repository secrets** (publish profiles):
+
+```powershell
+# Extraction API publish profile
+az webapp deployment list-publishing-profiles --name $extractionApp --resource-group $rg --xml > extraction.publishsettings
+
+# Orchestrator Function publish profile
+az functionapp deployment list-publishing-profiles --name $funcApp --resource-group $rg --xml > orchestrator.publishsettings
+```
+
+Copy the full contents into GitHub Secrets:
+- `EXTRACTION_APP_PUBLISH_PROFILE`
+- `ORCHESTRATOR_FUNC_PUBLISH_PROFILE`
+
+After that, any push to `azure_integration` will deploy automatically.

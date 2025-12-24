@@ -1,0 +1,46 @@
+name: Deploy Extraction API (App Service)
+
+on:
+  push:
+    branches: [ azure_integration ]
+    paths:
+      - 'services/extraction_api/**'
+      - '.github/workflows/deploy-extraction-api.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_SERVICE_NAME: ${{ vars.EXTRACTION_APP_SERVICE_NAME }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: services/extraction_api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # App Service (Linux) runs on port 8000 by default
+      - name: Create deployment package
+        working-directory: services/extraction_api
+        run: |
+          zip -r ../../extraction_api.zip .
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.APP_SERVICE_NAME }}
+          publish-profile: ${{ secrets.EXTRACTION_APP_PUBLISH_PROFILE }}
+          package: extraction_api.zip
