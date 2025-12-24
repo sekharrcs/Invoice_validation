@@ -16,6 +16,7 @@ env:
 
 jobs:
   build-and-deploy:
+    if: ${{ vars.ORCHESTRATOR_FUNCTION_APP_NAME != '' }}
     runs-on: ubuntu-latest
 
     steps:
